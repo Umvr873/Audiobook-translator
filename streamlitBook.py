@@ -1,334 +1,811 @@
-import streamlit as st
-import sounddevice as sd
-import wave
-import numpy as np
-import speech_recognition as sr
-from googletrans import Translator
-import pyttsx3
-import tempfile
-import os
-import io
-from pydub import AudioSegment
-import threading
-import time
-
-# Configure page
-st.set_page_config(
-    page_title="Audiobook Translator",
-    page_icon="🎧",
-    layout="wide"
-)
-
-# Custom CSS for better styling
-st.markdown("""
-<style>
-    .main-header {
-        text-align: center;
-        color: #2E86AB;
-        margin-bottom: 2rem;
-    }
-    .stAlert {
-        margin-top: 1rem;
-    }
-    .audio-section {
-        background-color: #f8f9fa;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    .translation-box {
-        background-color: #e3f2fd;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #2196f3;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-class AudiobookTranslator:
-    def __init__(self):
-        self.languages = {
-            "English": "en",
-            "French": "fr", 
-            "Spanish": "es",
-            "German": "de",
-            "Italian": "it",
-            "Swahili": "sw",
-            "Hausa": "ha",
-            "Yoruba": "yo",
-            "Arabic": "ar",
-            "Chinese": "zh-cn",
-            "Japanese": "ja",
-            "Russian": "ru",
-            "Portuguese": "pt"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audiobook Translator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        
-        # Initialize session state
-        if 'original_text' not in st.session_state:
-            st.session_state.original_text = ""
-        if 'translated_text' not in st.session_state:
-            st.session_state.translated_text = ""
-        if 'recording' not in st.session_state:
-            st.session_state.recording = False
-        if 'audio_data' not in st.session_state:
-            st.session_state.audio_data = []
 
-    def recognize_speech_from_audio(self, audio_file, source_lang_code):
-        """Convert audio to text using speech recognition"""
-        recognizer = sr.Recognizer()
-        
-        # Handle different audio formats
-        if audio_file.type.startswith('audio/'):
-            # Convert to wav if needed
-            audio_segment = AudioSegment.from_file(io.BytesIO(audio_file.read()))
-            wav_buffer = io.BytesIO()
-            audio_segment.export(wav_buffer, format="wav")
-            wav_buffer.seek(0)
-            
-            with sr.AudioFile(wav_buffer) as source:
-                audio = recognizer.record(source)
-        else:
-            # Direct wav file
-            with sr.AudioFile(io.BytesIO(audio_file.read())) as source:
-                audio = recognizer.record(source)
-        
-        # Recognize speech
-        text = recognizer.recognize_google(audio, language=source_lang_code)
-        return text
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
 
-    def translate_text(self, text, source_lang, target_lang):
-        """Translate text using Google Translate"""
-        translator = Translator()
-        translated = translator.translate(
-            text,
-            src=self.languages[source_lang],
-            dest=self.languages[target_lang]
-        )
-        return translated.text
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
 
-    def text_to_speech(self, text, rate=150, volume=1.0):
-        """Convert text to speech and return audio bytes"""
-        try:
-            engine = pyttsx3.init()
-            engine.setProperty('rate', rate)
-            engine.setProperty('volume', volume)
-            
-            # Create temporary file for audio output
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                tmp_filename = tmp_file.name
-            
-            # Save speech to file
-            engine.save_to_file(text, tmp_filename)
-            engine.runAndWait()
-            
-            # Read the audio file
-            with open(tmp_filename, 'rb') as f:
-                audio_bytes = f.read()
-            
-            # Clean up
-            os.unlink(tmp_filename)
-            
-            return audio_bytes
-        except Exception as e:
-            st.error(f"Text-to-speech error: {str(e)}")
-            return None
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
 
-def main():
-    translator_app = AudiobookTranslator()
-    
-    # Header
-    st.markdown("<h1 class='main-header'>🎧 Audiobook Translator</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>Translate and listen to audio in multiple languages</p>", unsafe_allow_html=True)
-    
-    # Sidebar for settings
-    with st.sidebar:
-        st.header("⚙️ Settings")
-        
-        # Language selection
-        st.subheader("Language Settings")
-        source_lang = st.selectbox(
-            "Source Language:",
-            options=list(translator_app.languages.keys()),
-            index=0
-        )
-        
-        target_lang = st.selectbox(
-            "Target Language:",
-            options=list(translator_app.languages.keys()),
-            index=1
-        )
-        
-        # Voice settings
-        st.subheader("Voice Settings")
-        speech_rate = st.slider("Speech Rate", 50, 300, 150)
-        volume = st.slider("Volume", 0.0, 1.0, 1.0, 0.1)
-        
-        # Instructions
-        st.markdown("---")
-        st.subheader("📋 How to Use")
-        st.markdown("""
-        1. **Upload Audio**: Choose an audio file to translate
-        2. **Record Audio**: Use the microphone to record speech
-        3. **Select Languages**: Choose source and target languages
-        4. **Get Translation**: View original and translated text
-        5. **Listen**: Play the translated audio
-        """)
-    
-    # Main content area
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("🎵 Audio Input")
-        
-        # File upload
-        uploaded_file = st.file_uploader(
-            "Upload Audio File",
-            type=['wav', 'mp3', 'm4a', 'ogg'],
-            help="Supported formats: WAV, MP3, M4A, OGG"
-        )
-        
-        if uploaded_file is not None:
-            st.audio(uploaded_file, format='audio/wav')
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .controls-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .control-group {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            border: 2px solid #e9ecef;
+        }
+
+        .control-group h3 {
+            margin-bottom: 15px;
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        select, input[type="range"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .range-container {
+            position: relative;
+        }
+
+        .range-value {
+            position: absolute;
+            right: 10px;
+            top: -25px;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .audio-section {
+            margin-bottom: 30px;
+        }
+
+        .audio-controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-success {
+            background: linear-gradient(45deg, #56ab2f, #a8e6cf);
+            color: white;
+        }
+
+        .btn-danger {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            color: white;
+        }
+
+        .btn-info {
+            background: linear-gradient(45deg, #36d1dc, #5b86e5);
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .file-upload {
+            position: relative;
+            display: inline-block;
+            overflow: hidden;
+        }
+
+        .file-upload input[type="file"] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .translation-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .text-box {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .text-box h4 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+
+        .text-content {
+            min-height: 150px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            font-size: 14px;
+            line-height: 1.6;
+            overflow-y: auto;
+        }
+
+        .status {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status.success {
+            background: #e8f5e8;
+            border-color: #c3e6c3;
+            color: #2e7d2e;
+        }
+
+        .status.error {
+            background: #ffebee;
+            border-color: #ffcdd2;
+            color: #c62828;
+        }
+
+        .status.warning {
+            background: #fff3e0;
+            border-color: #ffcc02;
+            color: #f57c00;
+        }
+
+        .audio-player {
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .recording-indicator {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        .recording-indicator.active {
+            display: flex;
+        }
+
+        .pulse {
+            width: 12px;
+            height: 12px;
+            background: #dc3545;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .manual-input {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .manual-input h3 {
+            margin-bottom: 15px;
+            color: #495057;
+        }
+
+        .input-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.6;
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        @media (max-width: 768px) {
+            .controls-section,
+            .translation-area,
+            .input-group {
+                grid-template-columns: 1fr;
+            }
             
-            if st.button("🔄 Translate Audio File", type="primary"):
-                with st.spinner("Processing audio..."):
-                    try:
-                        # Speech recognition
-                        st.info("🔍 Recognizing speech...")
-                        original_text = translator_app.recognize_speech_from_audio(
-                            uploaded_file, translator_app.languages[source_lang]
-                        )
-                        st.session_state.original_text = original_text
-                        
-                        # Translation
-                        st.info("🔄 Translating text...")
-                        translated_text = translator_app.translate_text(
-                            original_text, source_lang, target_lang
-                        )
-                        st.session_state.translated_text = translated_text
-                        
-                        st.success("✅ Translation complete!")
-                        
-                    except Exception as e:
-                        st.error(f"❌ Error processing audio: {str(e)}")
-        
-        # Recording section
-        st.markdown("---")
-        st.subheader("🎙️ Record Audio")
-        
-        # Note about recording limitations
-        st.warning("⚠️ **Note**: Audio recording in web browsers has limitations. For best results, upload pre-recorded audio files.")
-        
-        record_col1, record_col2 = st.columns(2)
-        
-        with record_col1:
-            if st.button("🔴 Start Recording", disabled=True):
-                st.info("Recording functionality requires additional setup for web deployment.")
-        
-        with record_col2:
-            if st.button("⏹️ Stop Recording", disabled=True):
-                st.info("Recording functionality requires additional setup for web deployment.")
-    
-    with col2:
-        st.subheader("📝 Translation Results")
-        
-        # Original text
-        with st.container():
-            st.markdown("**Original Text:**")
-            if st.session_state.original_text:
-                st.markdown(f"<div class='translation-box'>{st.session_state.original_text}</div>", 
-                           unsafe_allow_html=True)
-            else:
-                st.info("Upload and process an audio file to see the original text")
-        
-        st.markdown("---")
-        
-        # Translated text
-        with st.container():
-            st.markdown("**Translated Text:**")
-            if st.session_state.translated_text:
-                st.markdown(f"<div class='translation-box'>{st.session_state.translated_text}</div>", 
-                           unsafe_allow_html=True)
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .audio-controls {
+                justify-content: center;
+            }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎧 Audiobook Translator</h1>
+            <p>Translate and listen to audio in multiple languages</p>
+        </div>
+
+        <div class="main-content">
+            <!-- Language and Voice Settings -->
+            <div class="controls-section">
+                <div class="control-group">
+                    <h3>🌐 Language Settings</h3>
+                    <div class="form-group">
+                        <label for="sourceLanguage">Source Language:</label>
+                        <select id="sourceLanguage">
+                            <option value="en-US">English</option>
+                            <option value="fr-FR">French</option>
+                            <option value="es-ES">Spanish</option>
+                            <option value="de-DE">German</option>
+                            <option value="it-IT">Italian</option>
+                            <option value="pt-PT">Portuguese</option>
+                            <option value="ru-RU">Russian</option>
+                            <option value="ja-JP">Japanese</option>
+                            <option value="zh-CN">Chinese</option>
+                            <option value="ar-SA">Arabic</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="targetLanguage">Target Language:</label>
+                        <select id="targetLanguage">
+                            <option value="en-US">English</option>
+                            <option value="fr-FR">French</option>
+                            <option value="es-ES">Spanish</option>
+                            <option value="de-DE">German</option>
+                            <option value="it-IT">Italian</option>
+                            <option value="pt-PT">Portuguese</option>
+                            <option value="ru-RU">Russian</option>
+                            <option value="ja-JP">Japanese</option>
+                            <option value="zh-CN">Chinese</option>
+                            <option value="ar-SA">Arabic</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>🔊 Voice Settings</h3>
+                    <div class="form-group">
+                        <label for="speechRate">Speech Rate:</label>
+                        <div class="range-container">
+                            <input type="range" id="speechRate" min="0.5" max="2" value="1" step="0.1">
+                            <span class="range-value" id="rateValue">1.0</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="volume">Volume:</label>
+                        <div class="range-container">
+                            <input type="range" id="volume" min="0" max="1" value="1" step="0.1">
+                            <span class="range-value" id="volumeValue">1.0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Display -->
+            <div id="statusMessage" class="status hidden">
+                <span id="statusText">Ready to translate</span>
+            </div>
+
+            <!-- Audio Controls -->
+            <div class="audio-section">
+                <div class="audio-controls">
+                    <div class="file-upload">
+                        <input type="file" id="audioFile" accept="audio/*">
+                        <button class="btn btn-primary" onclick="document.getElementById('audioFile').click()">
+                            🎵 Select Audio File
+                        </button>
+                    </div>
+                    
+                    <button class="btn btn-danger" id="recordBtn" onclick="toggleRecording()">
+                        🔴 Start Recording
+                    </button>
+                    
+                    <button class="btn btn-info" id="playBtn" onclick="playTranslation()" disabled>
+                        🔊 Play Translation
+                    </button>
+                    
+                    <div class="recording-indicator" id="recordingIndicator">
+                        <div class="pulse"></div>
+                        <span>Recording...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Translation Display -->
+            <div class="translation-area">
+                <div class="text-box">
+                    <h4>📝 Original Text</h4>
+                    <div class="text-content" id="originalText">
+                        Upload an audio file or record speech to see the original text here...
+                    </div>
+                </div>
                 
-                # Text-to-speech for translation
-                if st.button("🔊 Play Translation", type="secondary"):
-                    with st.spinner("Generating audio..."):
-                        try:
-                            audio_bytes = translator_app.text_to_speech(
-                                st.session_state.translated_text, 
-                                speech_rate, 
-                                volume
-                            )
-                            if audio_bytes:
-                                st.audio(audio_bytes, format='audio/wav')
-                                st.success("🎵 Audio generated successfully!")
-                        except Exception as e:
-                            st.error(f"❌ Error generating audio: {str(e)}")
-            else:
-                st.info("Process an audio file to see the translation")
-    
-    # Manual text input section
-    st.markdown("---")
-    st.subheader("✏️ Manual Text Translation")
-    
-    text_col1, text_col2 = st.columns(2)
-    
-    with text_col1:
-        manual_text = st.text_area(
-            f"Enter text in {source_lang}:",
-            height=100,
-            placeholder=f"Type your text in {source_lang} here..."
-        )
-        
-        if st.button("🔄 Translate Text") and manual_text.strip():
-            with st.spinner("Translating..."):
-                try:
-                    translated_manual = translator_app.translate_text(
-                        manual_text, source_lang, target_lang
-                    )
-                    st.session_state.manual_translation = translated_manual
-                    st.success("✅ Translation complete!")
-                except Exception as e:
-                    st.error(f"❌ Translation error: {str(e)}")
-    
-    with text_col2:
-        if hasattr(st.session_state, 'manual_translation'):
-            st.text_area(
-                f"Translation in {target_lang}:",
-                value=st.session_state.manual_translation,
-                height=100,
-                disabled=True
-            )
-            
-            if st.button("🔊 Play Manual Translation"):
-                with st.spinner("Generating audio..."):
-                    try:
-                        audio_bytes = translator_app.text_to_speech(
-                            st.session_state.manual_translation,
-                            speech_rate,
-                            volume
-                        )
-                        if audio_bytes:
-                            st.audio(audio_bytes, format='audio/wav')
-                    except Exception as e:
-                        st.error(f"❌ Error generating audio: {str(e)}")
-        else:
-            st.text_area(
-                f"Translation in {target_lang}:",
-                value="",
-                height=100,
-                disabled=True,
-                placeholder="Translation will appear here..."
-            )
-    
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        "<p style='text-align: center; color: #666; font-size: 0.8em;'>"
-        "Built with Streamlit • Support for 13+ languages • Real-time translation"
-        "</p>", 
-        unsafe_allow_html=True
-    )
+                <div class="text-box">
+                    <h4>🔄 Translated Text</h4>
+                    <div class="text-content" id="translatedText">
+                        Translation will appear here after processing...
+                    </div>
+                </div>
+            </div>
 
-if __name__ == "__main__":
-    main()
+            <!-- Manual Text Input -->
+            <div class="manual-input">
+                <h3>✏️ Manual Text Translation</h3>
+                <div class="input-group">
+                    <div>
+                        <label for="manualInput">Enter text to translate:</label>
+                        <textarea id="manualInput" placeholder="Type your text here..."></textarea>
+                        <button class="btn btn-primary" onclick="translateManualText()">
+                            🔄 Translate Text
+                        </button>
+                    </div>
+                    <div>
+                        <label for="manualOutput">Translation:</label>
+                        <textarea id="manualOutput" readonly placeholder="Translation will appear here..."></textarea>
+                        <button class="btn btn-success" onclick="speakManualTranslation()">
+                            🔊 Speak Translation
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let recognition;
+        let currentAudioUrl = null;
+
+        // Language code mappings for different APIs
+        const languageCodes = {
+            'en-US': { translate: 'en', speech: 'en-US', name: 'English' },
+            'fr-FR': { translate: 'fr', speech: 'fr-FR', name: 'French' },
+            'es-ES': { translate: 'es', speech: 'es-ES', name: 'Spanish' },
+            'de-DE': { translate: 'de', speech: 'de-DE', name: 'German' },
+            'it-IT': { translate: 'it', speech: 'it-IT', name: 'Italian' },
+            'pt-PT': { translate: 'pt', speech: 'pt-PT', name: 'Portuguese' },
+            'ru-RU': { translate: 'ru', speech: 'ru-RU', name: 'Russian' },
+            'ja-JP': { translate: 'ja', speech: 'ja-JP', name: 'Japanese' },
+            'zh-CN': { translate: 'zh', speech: 'zh-CN', name: 'Chinese' },
+            'ar-SA': { translate: 'ar', speech: 'ar-SA', name: 'Arabic' }
+        };
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            setupEventListeners();
+            checkBrowserSupport();
+            setDefaultLanguages();
+        });
+
+        function setupEventListeners() {
+            // Range input updates
+            document.getElementById('speechRate').addEventListener('input', function() {
+                document.getElementById('rateValue').textContent = this.value;
+            });
+
+            document.getElementById('volume').addEventListener('input', function() {
+                document.getElementById('volumeValue').textContent = this.value;
+            });
+
+            // File upload
+            document.getElementById('audioFile').addEventListener('change', handleFileUpload);
+        }
+
+        function setDefaultLanguages() {
+            document.getElementById('sourceLanguage').value = 'en-US';
+            document.getElementById('targetLanguage').value = 'fr-FR';
+        }
+
+        function checkBrowserSupport() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                showStatus('⚠️ Speech recognition not supported in this browser. Try Chrome or Edge.', 'warning');
+            }
+
+            if (!('speechSynthesis' in window)) {
+                showStatus('⚠️ Text-to-speech not supported in this browser.', 'warning');
+            }
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusElement = document.getElementById('statusMessage');
+            const statusText = document.getElementById('statusText');
+            
+            statusText.textContent = message;
+            statusElement.className = `status ${type}`;
+            statusElement.classList.remove('hidden');
+            
+            setTimeout(() => {
+                statusElement.classList.add('hidden');
+            }, 5000);
+        }
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            showStatus('🔍 Processing audio file...', 'info');
+
+            try {
+                // Create audio URL for playback
+                const audioUrl = URL.createObjectURL(file);
+                
+                // Convert audio to text using Web Speech API (limited support)
+                const text = await processAudioFile(file);
+                
+                if (text) {
+                    document.getElementById('originalText').textContent = text;
+                    await translateText(text);
+                } else {
+                    showStatus('❌ Could not extract text from audio. Try manual text input.', 'error');
+                }
+            } catch (error) {
+                console.error('Error processing file:', error);
+                showStatus('❌ Error processing audio file.', 'error');
+            }
+        }
+
+        async function processAudioFile(file) {
+            return new Promise((resolve, reject) => {
+                // Note: Web browsers have limited audio-to-text capabilities
+                // This is a simplified implementation
+                showStatus('⚠️ Browser audio processing is limited. Consider using manual text input.', 'warning');
+                resolve(null);
+            });
+        }
+
+        async function toggleRecording() {
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                stopRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Setup MediaRecorder
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    await processRecordedAudio(audioBlob);
+                };
+                
+                // Setup Speech Recognition
+                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    recognition = new SpeechRecognition();
+                    
+                    const sourceLanguage = document.getElementById('sourceLanguage').value;
+                    recognition.lang = sourceLanguage;
+                    recognition.continuous = true;
+                    recognition.interimResults = true;
+                    
+                    recognition.onresult = (event) => {
+                        let finalTranscript = '';
+                        for (let i = event.resultIndex; i < event.results.length; i++) {
+                            if (event.results[i].isFinal) {
+                                finalTranscript += event.results[i][0].transcript;
+                            }
+                        }
+                        if (finalTranscript) {
+                            document.getElementById('originalText').textContent = finalTranscript;
+                        }
+                    };
+                    
+                    recognition.start();
+                }
+                
+                mediaRecorder.start();
+                isRecording = true;
+                
+                document.getElementById('recordBtn').textContent = '⏹ Stop Recording';
+                document.getElementById('recordBtn').className = 'btn btn-danger';
+                document.getElementById('recordingIndicator').classList.add('active');
+                
+                showStatus('🎙️ Recording started...', 'info');
+                
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                showStatus('❌ Could not access microphone. Please check permissions.', 'error');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                if (recognition) {
+                    recognition.stop();
+                }
+                
+                // Stop all audio tracks
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                
+                isRecording = false;
+                document.getElementById('recordBtn').textContent = '🔴 Start Recording';
+                document.getElementById('recordingIndicator').classList.remove('active');
+                
+                showStatus('✅ Recording stopped. Processing...', 'success');
+            }
+        }
+
+        async function processRecordedAudio(audioBlob) {
+            // The recorded audio is already processed via Speech Recognition
+            // Here we could save the audio or do additional processing
+            const text = document.getElementById('originalText').textContent;
+            if (text && text !== 'Upload an audio file or record speech to see the original text here...') {
+                await translateText(text);
+            }
+        }
+
+        async function translateText(text) {
+            const sourceLanguage = document.getElementById('sourceLanguage').value;
+            const targetLanguage = document.getElementById('targetLanguage').value;
+            
+            showStatus('🔄 Translating text...', 'info');
+            
+            try {
+                // Using a free translation API (Note: This is a demo - you'd need a real API key)
+                const sourceLang = languageCodes[sourceLanguage].translate;
+                const targetLang = languageCodes[targetLanguage].translate;
+                
+                // For demo purposes, we'll use a simple mock translation
+                // In production, you'd use Google Translate API, Azure Translator, etc.
+                const translatedText = await mockTranslate(text, sourceLang, targetLang);
+                
+                document.getElementById('translatedText').textContent = translatedText;
+                document.getElementById('playBtn').disabled = false;
+                
+                showStatus('✅ Translation complete!', 'success');
+                
+                // Auto-play translation
+                setTimeout(() => playTranslation(), 1000);
+                
+            } catch (error) {
+                console.error('Translation error:', error);
+                showStatus('❌ Translation failed. Please try again.', 'error');
+            }
+        }
+
+        async function mockTranslate(text, sourceLang, targetLang) {
+            // This is a mock function for demo purposes
+            // In production, you would call a real translation API
+            const translations = {
+                'hello': { 'fr': 'bonjour', 'es': 'hola', 'de': 'hallo' },
+                'goodbye': { 'fr': 'au revoir', 'es': 'adiós', 'de': 'auf wiedersehen' },
+                'thank you': { 'fr': 'merci', 'es': 'gracias', 'de': 'danke' }
+            };
+            
+            const lowerText = text.toLowerCase();
+            for (const [english, translationMap] of Object.entries(translations)) {
+                if (lowerText.includes(english) && translationMap[targetLang]) {
+                    return text.toLowerCase().replace(english, translationMap[targetLang]);
+                }
+            }
+            
+            // If no direct translation found, return a placeholder
+            return `[Translated from ${sourceLang} to ${targetLang}]: ${text}`;
+        }
+
+        function playTranslation() {
+            const translatedText = document.getElementById('translatedText').textContent;
+            
+            if (!translatedText || translatedText === 'Translation will appear here after processing...') {
+                showStatus('⚠️ No translation to play.', 'warning');
+                return;
+            }
+            
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(translatedText);
+                const targetLanguage = document.getElementById('targetLanguage').value;
+                const rate = parseFloat(document.getElementById('speechRate').value);
+                const volume = parseFloat(document.getElementById('volume').value);
+                
+                utterance.lang = targetLanguage;
+                utterance.rate = rate;
+                utterance.volume = volume;
+                
+                utterance.onstart = () => {
+                    showStatus('🔊 Playing translation...', 'info');
+                };
+                
+                utterance.onend = () => {
+                    showStatus('✅ Playback complete.', 'success');
+                };
+                
+                utterance.onerror = (error) => {
+                    console.error('Speech synthesis error:', error);
+                    showStatus('❌ Error during playback.', 'error');
+                };
+                
+                speechSynthesis.speak(utterance);
+            } else {
+                showStatus('❌ Text-to-speech not supported in this browser.', 'error');
+            }
+        }
+
+        async function translateManualText() {
+            const inputText = document.getElementById('manualInput').value.trim();
+            
+            if (!inputText) {
+                showStatus('⚠️ Please enter text to translate.', 'warning');
+                return;
+            }
+            
+            const sourceLanguage = document.getElementById('sourceLanguage').value;
+            const targetLanguage = document.getElementById('targetLanguage').value;
+            
+            try {
+                const sourceLang = languageCodes[sourceLanguage].translate;
+                const targetLang = languageCodes[targetLanguage].translate;
+                
+                const translatedText = await mockTranslate(inputText, sourceLang, targetLang);
+                document.getElementById('manualOutput').value = translatedText;
+                
+                showStatus('✅ Manual translation complete!', 'success');
+                
+            } catch (error) {
+                console.error('Manual translation error:', error);
+                showStatus('❌ Manual translation failed.', 'error');
+            }
+        }
+
+        function speakManualTranslation() {
+            const translatedText = document.getElementById('manualOutput').value;
+            
+            if (!translatedText) {
+                showStatus('⚠️ No manual translation to speak.', 'warning');
+                return;
+            }
+            
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(translatedText);
+                const targetLanguage = document.getElementById('targetLanguage').value;
+                const rate = parseFloat(document.getElementById('speechRate').value);
+                const volume = parseFloat(document.getElementById('volume').value);
+                
+                utterance.lang = targetLanguage;
+                utterance.rate = rate;
+                utterance.volume = volume;
+                
+                speechSynthesis.speak(utterance);
+                showStatus('🔊 Speaking manual translation...', 'info');
+            } else {
+                showStatus('❌ Text-to-speech not supported.', 'error');
+            }
+        }
+    </script>
+</body>
+</html>
